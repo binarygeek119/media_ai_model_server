@@ -100,7 +100,12 @@ def _fetch_release(tag: str | None) -> dict:
     else:
         url = GITHUB_RELEASE_API
 
-    request = Request(url, headers={"User-Agent": USER_AGENT})
+    headers: dict[str, str] = {"User-Agent": USER_AGENT}
+    github_token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if github_token:
+        headers["Authorization"] = f"Bearer {github_token}"
+
+    request = Request(url, headers=headers)
     try:
         with urlopen(request) as response:
             return json.load(response)
