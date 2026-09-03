@@ -44,32 +44,41 @@ USER_AGENT = "nsfw-ai-model-server-ffmpeg-installer"
 PREFERRED_RELEASE_TAG: str | None = None
 
 # Set PREFERRED_FFMPEG_VERSION to filter assets by version token within their
-# filename (for example, "6.1" to pick FFmpeg 6.1.x builds). Set to None to
-# accept whatever version the release provides.
-PREFERRED_FFMPEG_VERSION: str | None = "8.0"
+# filename (for example, "8.1" to pick FFmpeg 8.1.x builds). Set to None to
+# accept whatever version the release provides. If the token is missing from
+# the latest release, the installer falls back to any matching platform asset.
+PREFERRED_FFMPEG_VERSION: str | None = "8.1"
 
 ASSET_RULES = {
     ("Windows", "x86_64"): [
         {"include": ("ffmpeg-n", "win64", "gpl", "shared", ".zip"), "exclude": ()},
         {"include": ("ffmpeg-n", "win64", "gpl", ".zip"), "exclude": ("shared",)},
+        {"include": ("ffmpeg-N-", "win64", "gpl", "shared", ".zip"), "exclude": ()},
+        {"include": ("ffmpeg-N-", "win64", "gpl", ".zip"), "exclude": ("shared",)},
         {"include": ("ffmpeg-master", "win64", "gpl", "shared", ".zip"), "exclude": ()},
         {"include": ("ffmpeg-master", "win64", "gpl", ".zip"), "exclude": ("shared",)},
     ],
     ("Windows", "arm64"): [
         {"include": ("ffmpeg-n", "winarm64", "gpl", "shared", ".zip"), "exclude": ()},
         {"include": ("ffmpeg-n", "winarm64", "gpl", ".zip"), "exclude": ("shared",)},
+        {"include": ("ffmpeg-N-", "winarm64", "gpl", "shared", ".zip"), "exclude": ()},
+        {"include": ("ffmpeg-N-", "winarm64", "gpl", ".zip"), "exclude": ("shared",)},
         {"include": ("ffmpeg-master", "winarm64", "gpl", "shared", ".zip"), "exclude": ()},
         {"include": ("ffmpeg-master", "winarm64", "gpl", ".zip"), "exclude": ("shared",)},
     ],
     ("Linux", "x86_64"): [
         {"include": ("ffmpeg-n", "linux64", "gpl", ".tar.xz"), "exclude": ("shared",)},
         {"include": ("ffmpeg-n", "linux64", "gpl", ".tar.xz"), "exclude": ()},
+        {"include": ("ffmpeg-N-", "linux64", "gpl", ".tar.xz"), "exclude": ("shared",)},
+        {"include": ("ffmpeg-N-", "linux64", "gpl", ".tar.xz"), "exclude": ()},
         {"include": ("ffmpeg-master", "linux64", "gpl", ".tar.xz"), "exclude": ("shared",)},
         {"include": ("ffmpeg-master", "linux64", "gpl", ".tar.xz"), "exclude": ()},
     ],
     ("Linux", "aarch64"): [
         {"include": ("ffmpeg-n", "linuxarm64", "gpl", ".tar.xz"), "exclude": ("shared",)},
         {"include": ("ffmpeg-n", "linuxarm64", "gpl", ".tar.xz"), "exclude": ()},
+        {"include": ("ffmpeg-N-", "linuxarm64", "gpl", ".tar.xz"), "exclude": ("shared",)},
+        {"include": ("ffmpeg-N-", "linuxarm64", "gpl", ".tar.xz"), "exclude": ()},
         {"include": ("ffmpeg-master", "linuxarm64", "gpl", ".tar.xz"), "exclude": ("shared",)},
         {"include": ("ffmpeg-master", "linuxarm64", "gpl", ".tar.xz"), "exclude": ()},
     ],
@@ -348,13 +357,14 @@ def main() -> None:
         _log(f"Filtering release assets for version token '{asset_version}'.")
     try:
         asset = _select_asset(release_data, system, machine, version_filter=asset_version)
-    except RuntimeError as exc:
-        if asset_version:
-            raise RuntimeError(
-                f"No FFmpeg assets in release '{release_data.get('tag_name')}' matched version token '{asset_version}'."
-                " Adjust PREFERRED_FFMPEG_VERSION or set FFMPEG_VERSION_FILTER to a value present in the release."
-            ) from exc
-        raise
+    except RuntimeError:
+        if not asset_version:
+            raise
+        _log(
+            f"No assets matched version token '{asset_version}' in "
+            f"'{release_data.get('tag_name')}'; falling back to any matching build."
+        )
+        asset = _select_asset(release_data, system, machine)
     _log(f"Selected FFmpeg build: {asset.get('name')}")
 
     if not prefix.exists():
