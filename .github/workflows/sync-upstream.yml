@@ -1,0 +1,84 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Open PR from skier233/media_ai_model_server
+    if: github.repository == 'binarygeek119/media_ai_model_server'
+    runs-on: ubuntu-latest
+    env:
+      UPSTREAM_REMOTE: https://github.com/skier233/media_ai_model_server.git
+      SYNC_BRANCH: sync/upstream
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream "$UPSTREAM_REMOTE"
+          git fetch --no-tags origin main
+          git fetch --no-tags upstream main
+
+      - name: Check for upstream updates
+        id: check
+        run: |
+          ahead=$(git rev-list --count origin/main..upstream/main)
+          echo "ahead=$ahead" >> "$GITHUB_OUTPUT"
+          echo "Upstream is $ahead commit(s) ahead of this fork."
+
+      - name: Create or update pull request
+        if: steps.check.outputs.ahead != '0'
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -B "$SYNC_BRANCH" origin/main
+          if ! git merge --no-ff --no-edit upstream/main; then
+            echo "::error::Merge conflict with skier233/media_ai_model_server. Resolve this locally and push."
+            git merge --abort
+            exit 1
+          fi
+
+          git push --force-with-lease origin "$SYNC_BRANCH"
+
+          {
+            echo "Automated sync from upstream [skier233/media_ai_model_server](https://github.com/skier233/media_ai_model_server)."
+            echo
+            echo "Merges new commits from upstream \`main\` into this fork while keeping fork-specific changes."
+            echo
+            echo "## Upstream commits"
+            echo
+            git log --format='- %h %s' origin/main..upstream/main
+          } > "$RUNNER_TEMP/pr-body.md"
+
+          existing=$(gh pr list --base main --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --body-file "$RUNNER_TEMP/pr-body.md"
+            echo "Updated existing PR #$existing"
+            exit 0
+          fi
+
+          gh pr create \
+            --base main \
+            --head "$SYNC_BRANCH" \
+            --title "Sync with skier233/media_ai_model_server" \
+            --body-file "$RUNNER_TEMP/pr-body.md"
