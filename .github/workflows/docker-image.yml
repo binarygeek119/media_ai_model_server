@@ -34,6 +34,10 @@ jobs:
             file: ./Dockerfile-intel
             latest: false
             extra_tag: intel
+          - name: amd
+            file: ./Dockerfile-amd
+            latest: false
+            extra_tag: amd
 
     steps:
       - name: Checkout

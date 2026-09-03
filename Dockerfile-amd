@@ -1,0 +1,29 @@
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        wget curl ca-certificates gnupg \
+        libglib2.0-0 libxext6 libsm6 libxrender1 ffmpeg \
+        libnuma1 libdrm2 \
+    && echo "deb [trusted=yes] https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu jammy main" \
+       > /etc/apt/sources.list.d/deadsnakes.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        python3.12 python3.12-dev \
+    && wget https://bootstrap.pypa.io/get-pip.py \
+    && python3.12 get-pip.py && rm get-pip.py \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# PyTorch ROCm 7.2 wheels + shared app dependencies (see install/requirements-amd.txt)
+COPY install/requirements-amd.txt .
+COPY install/requirements-base.txt .
+RUN python3.12 -m pip install -r requirements-amd.txt
+
+COPY dist/ai_processing-0.0.0-cp312-cp312-linux_x86_64.whl /tmp/
+RUN python3.12 -m pip install /tmp/ai_processing-0.0.0-cp312-cp312-linux_x86_64.whl
+
+EXPOSE 8000
+WORKDIR /app
+CMD ["python3.12", "server.py"]

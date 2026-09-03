@@ -31,13 +31,56 @@ Before becoming a patron or installing the free model, please be aware of the fo
 
 - **Usage Restrictions**: This code and associated models can only be used for personal local use as per the license. For any for-profit use cases or use cases that require online deployment, [please contact](https://discord.gg/EvYbZBf) me for licensing options.
 
-- **Hardware Requirements**: NVIDIA GPUs are fully supported. Any NVIDIA GPUs older than the NVIDIA 1080 will likely not work. AMD, Intel, and MacOS are supported in Beta. These configurations have limited users so far and may encounter issues
+- **Hardware Requirements**: NVIDIA GPUs are fully supported. Any NVIDIA GPUs older than the NVIDIA 1080 will likely not work. AMD, Intel, and MacOS are supported in Beta. These configurations have limited users so far and may encounter issues.
+
+- **NVIDIA Docker Image**: The default NVIDIA Docker image in this fork is geared specifically to a **Tesla M40 24GB** (compute capability `sm_52`, CUDA 12.6 PyTorch wheels). It may not work on other NVIDIA GPUs, especially newer cards that expect CUDA 13.x wheels. The Intel and AMD Docker/install paths are unchanged from upstream.
 
 - **Performance on CPU**: While CPU is supported, it will be much slower compared to running on a GPU.
 
 - **Complexity and Support**: Running machine learning models is complex and requires precise conditions to work smoothly. Although I have worked to make the installation process and AI model predictions as user-friendly as possible, due to the variability in hardware and software environments, there might be issues. I will do my best to help resolve any issues, but I cannot guarantee that the models will run on every computer.
 
 - **Model Access**: The most capable models are for paid patrons only because this project takes an enormous amount of time, and SubscribeStar funds future development. There is a free model available with less tags for users that may not care about all the tags or want to try the AI before considering becoming a patron.
+
+## Docker Images
+
+Published images for this fork are available on GitHub Container Registry:
+
+| Image | Tag(s) | Dockerfile | Notes |
+| --- | --- | --- | --- |
+| NVIDIA CUDA | `ghcr.io/binarygeek119/media_ai_model_server:latest`<br>`ghcr.io/binarygeek119/media_ai_model_server:cuda` | `Dockerfile` | Geared to **Tesla M40 24GB** (`sm_52`) using PyTorch CUDA **12.6** wheels. May not work on other NVIDIA GPUs. |
+| Intel XPU | `ghcr.io/binarygeek119/media_ai_model_server:intel` | `Dockerfile-intel` | Unchanged Intel XPU path. |
+| AMD ROCm | `ghcr.io/binarygeek119/media_ai_model_server:amd` | `Dockerfile-amd` | PyTorch ROCm **7.2** wheels from `install/requirements-amd.txt`. Untouched by the NVIDIA M40 pin. |
+
+### Build locally
+
+**NVIDIA (Tesla M40-oriented):**
+```bash
+docker build -t ai_model_server \
+  --build-arg GITHUB_TOKEN=$(gh auth token) .
+```
+
+`GITHUB_TOKEN` is optional but recommended so the FFmpeg installer can avoid GitHub API rate limits.
+
+**Intel:**
+```bash
+docker build -f Dockerfile-intel -t ai_model_server .
+```
+
+**AMD (ROCm):**
+```bash
+docker build -f Dockerfile-amd -t ai_model_server .
+```
+
+### Run with Docker Compose
+
+1. Edit `docker-compose.yml` and uncomment the NVIDIA, Intel, or AMD GPU block for your hardware.
+2. Point the `nsfw-ai-data` volume `device:` path at your host media/models directory.
+3. Start the server:
+```bash
+docker compose up
+```
+
+Server ports: `8000` (API) and `7483`.
 
 ## Free Open Source vs Paid Models
 

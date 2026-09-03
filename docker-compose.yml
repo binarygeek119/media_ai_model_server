@@ -30,6 +30,20 @@ services:
     #devices:
     #  - /dev/dri:/dev/dri
 
+  # ── AMD ROCm ──
+  # Build with: docker build -f Dockerfile-amd -t ai_model_server .
+  # Uncomment the devices/group_add/security_opt below for AMD GPUs.
+  # Remove or comment out the NVIDIA and Intel blocks above.
+  #
+    #devices:
+    #  - /dev/kfd
+    #  - /dev/dri
+    #group_add:
+    #  - video
+    #  - render
+    #security_opt:
+    #  - seccomp=unconfined
+
     ports:
       - "8000:8000"
       - "7483:7483"
