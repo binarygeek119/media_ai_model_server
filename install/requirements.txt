@@ -1,6 +1,8 @@
 -r requirements-base.txt
 # Windows/Linux NVIDIA GPU requirements
---extra-index-url https://download.pytorch.org/whl/cu130
+# cu130/cu132 wheels drop Maxwell/Pascal (sm_50/sm_60). Tesla M40 is sm_52.
+# CUDA 12.6 is the newest official index that still ships those kernels.
+--extra-index-url https://download.pytorch.org/whl/cu126
 torch==2.11.0
 torchvision==0.26.0
 torchaudio==2.11.0
