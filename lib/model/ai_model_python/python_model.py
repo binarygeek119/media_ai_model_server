@@ -1,5 +1,7 @@
 
 import gc
+from contextlib import nullcontext
+
 import torch
 
 class PythonModel:
@@ -42,22 +44,40 @@ class PythonModel:
         """Run model without sigmoid, respecting keep_on_device setting."""
         return self.run_model(input_tensor, False)
 
-    def run_raw_multi_output(self, input_tensor):
+    def run_raw_multi_output(self, input_tensor, use_half=True):
         """Run model returning all output heads as a list of numpy arrays.
         For multi-output models (e.g. face detection).
+
+        ``use_half=False`` keeps the input dtype and disables autocast, for
+        architectures that are not numerically safe in fp16 (transformer
+        models with sinusoidal position encodings overflow in half).
         """
-        import numpy as np
         input_tensor = input_tensor.to(self.device)
-        if input_tensor.dtype != torch.float16:
-            input_tensor = input_tensor.half()
+        # fp16 only pays off on an accelerator. On CPU it is emulated and runs
+        # orders of magnitude slower, and torch.autocast("cpu") defaults to
+        # bfloat16 -- which numpy cannot represent, so the .numpy() below would
+        # fail with "Got unsupported ScalarType BFloat16". Run CPU in fp32.
+        half = use_half and self.device.type != "cpu"
+        if self.device.type == "cpu":
+            if input_tensor.dtype != torch.float32:
+                input_tensor = input_tensor.float()
+            autocast_ctx = nullcontext()
+        else:
+            if half and input_tensor.dtype != torch.float16:
+                input_tensor = input_tensor.half()
+            autocast_ctx = torch.autocast(self.device.type, dtype=torch.float16, enabled=half)
         with torch.no_grad():
-            with torch.autocast(self.device.type, enabled=True):
+            with autocast_ctx:
                 outputs = self.model(input_tensor)
         if isinstance(outputs, torch.Tensor):
             outputs = (outputs,)
         elif not isinstance(outputs, (tuple, list)):
             outputs = tuple(outputs)
-        return [o.detach().cpu().numpy() for o in outputs]
+        # numpy has no bfloat16 dtype at all, on any platform -- upcast first.
+        return [
+            (o.float() if o.dtype == torch.bfloat16 else o).detach().cpu().numpy()
+            for o in outputs
+        ]
 
     def process_images(self, preprocessed_images, applySigmoid = True):
         if preprocessed_images.size(0) <= self.max_batch_size:
