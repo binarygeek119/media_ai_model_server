@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Media-AI-Model-Server-Intel</Name>
+  <Repository>ghcr.io/binarygeek119/media_ai_model_server:intel</Repository>
+  <Registry>https://github.com/binarygeek119/media_ai_model_server/pkgs/container/media_ai_model_server</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/binarygeek119/media_ai_model_server/issues</Support>
+  <Project>https://github.com/binarygeek119/media_ai_model_server</Project>
+  <Overview>AI-powered tagging server for a local image, video and audio library. It receives media paths (normally under /media) and returns time-based tags, face detections and embeddings that clients such as Cove or Stash can use to organise and search a library. This template runs the Intel XPU image (PyTorch XPU wheels) and requires an Intel Arc or integrated GPU with the required host driver (i915 / xe); /dev/dri is passed through to the container. The image does not include any AI models: download the free or paid models from the project wiki and copy their config and models folders into the mounted Config and Models paths, then set the active model in config/active_ai.yaml. The HTTP API listens on port 8000, with interactive API docs (Swagger UI) at /docs.</Overview>
+  <Category>MediaApp:Other Tools:Utilities</Category>
+  <WebUI>http://[IP]:[PORT:8000]/docs</WebUI>
+  <Icon>https://raw.githubusercontent.com/binarygeek119/media_ai_model_server/main/unraid/icon.png</Icon>
+  <ExtraParams>--device=/dev/dri --group-add=video --group-add=render --restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <ExtraSearchTerms>ai tagging nsfw cove stash media xpu intel</ExtraSearchTerms>
+  <Requires>Intel Arc or integrated GPU with the i915/xe host driver. AI models are not included and must be downloaded separately.</Requires>
+  <License>Personal use only (see LICENSE)</License>
+  <Date>2026-10-15</Date>
+  <Config Name="API Port" Target="8000" Default="8000" Mode="tcp" Description="HTTP API and Swagger UI port (http://[IP]:[PORT:8000]/docs)." Type="Port" Display="always" Required="true" Mask="false">8000</Config>
+  <Config Name="Config" Target="/app/config" Default="/mnt/user/appdata/media-ai-model-server/config" Mode="rw" Description="Persistent configuration: active model selection, pipelines and downloaded model YAMLs." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/media-ai-model-server/config</Config>
+  <Config Name="Models" Target="/app/models" Default="/mnt/user/appdata/media-ai-model-server/models" Mode="rw" Description="Downloaded AI model files and any .lic license files." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/media-ai-model-server/models</Config>
+  <Config Name="Media" Target="/media" Default="/mnt/user/media" Mode="ro" Description="Media library. Paths sent to the API must resolve here (e.g. /media/movies/a.mp4)." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/media</Config>
+  <TemplateURL>https://raw.githubusercontent.com/binarygeek119/media_ai_model_server/main/unraid/media-ai-model-server-intel.xml</TemplateURL>
+  <Changes>### 2026-10-15
+- Initial release</Changes>
+</Container>

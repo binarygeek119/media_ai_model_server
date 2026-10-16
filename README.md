@@ -82,6 +82,13 @@ docker compose up
 
 Server ports: `8000` (API) and `7483`.
 
+### Unraid
+
+Community Applications templates for all three GPU variants are provided in
+[`unraid/`](unraid/). See [`unraid/README.md`](unraid/README.md) for setup.
+The published images bake in the server source, so the templates only need to
+mount `config`, `models` and your media library.
+
 ## Free Open Source vs Paid Models
 
 This project includes both a free open source AI model as well as several paid SubscribeStar only models. The free AI model supports [10 tags](https://docs.google.com/spreadsheets/d/1MbULbXaUMjvuGo066SuPaJVjBSSA57jhS3DAtvWNpwI/edit?usp=sharing) compared to the [151 overall](https://docs.google.com/spreadsheets/d/1MbULbXaUMjvuGo066SuPaJVjBSSA57jhS3DAtvWNpwI/edit?usp=sharing) in the SubscribeStar models. The paid version also includes different model variations that have different tradeoffs between accuracy and speed as well as more AI models for additional tag categories. You can see the list of currently available models here:

@@ -47,8 +47,22 @@ RUN python3.12 -m pip install /tmp/ai_processing-0.0.0-cp312-cp312-linux_x86_64.
 # Expose the port FastAPI runs on
 EXPOSE 8000
 
-# Set the working directory
+# Bake in the server source so the published image is self-contained. models/
+# and data/ are excluded via .dockerignore so user model blobs and local data
+# are never baked into the image.
 WORKDIR /app
+COPY server.py migrate.py select_models.sh select_models.ps1 start.sh start.ps1 ./
+COPY lib ./lib
+COPY config ./config
+
+# Keep a pristine copy of the default config so the entrypoint can seed a
+# mounted (initially empty) /app/config on first run.
+RUN cp -a /app/config /opt/app-defaults-config
+
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Command to run the server.py script
 CMD ["python3.12", "server.py"]
