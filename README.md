@@ -4,7 +4,7 @@ This project is dedicated to creating and running AI models that can automatical
 
 ## Key Benefits of AI Tagging
 
-The AI models available here are state-of-the-art, boasting far higher accuracy than any other similar AI models found on the internet. These models provide data that can be useful in many ways:
+The AI models available here are state-of-the-art, boasting far higher accuracy than any other similar AI models found on the internet. You don't have to just take my word for it either, feel free to check out the numbers and [see how large of a difference it is](https://github.com/skier233/media_ai_model_server/wiki/AI-model-accuracy-comparison-with-other-available-models) These models provide data that can be useful in many ways:
 
 * **Precision Time-Based Tagging**
   - The AI delivers highly accurate time-based tags, making it easy for you to search and find specific content within a video without having to watch the entire video to locate the interesting parts.
