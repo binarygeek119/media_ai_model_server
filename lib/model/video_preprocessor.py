@@ -5,6 +5,8 @@ import os
 import queue
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, wait
+from lib.utils.cuda_health import cuda_health
 
 import torch
 from lib.async_lib.async_processing import ItemFuture, model_skip_reason
@@ -29,8 +31,13 @@ from lib.pipeline.preprocess_spec import (
 )
 
 
+MAX_AUTO_PENDING_FRAMES = 4096
+RESULT_QUEUE_DEPTH = 64
+CONSUMER_BATCH_SIZE = 64
+
+
 def compute_auto_pending_frames(per_frame_mb, ram_fraction, assumed_concurrency,
-                                _min=32, _max=4096, _fallback=256):
+                                _min=32, _max=MAX_AUTO_PENDING_FRAMES, _fallback=256):
     """RAM-safe per-video cap on in-flight preprocessed frames.
 
     Preprocessed frames live in system RAM (device="cpu" specs), so the backlog
@@ -126,12 +133,21 @@ class VideoPreprocessorModel(Model):
         # saturates memory bandwidth on typical multi-core boxes).
         _workers = configValues.get("decode_workers", 0)
         self._decode_workers = int(_workers) if _workers else min(8, os.cpu_count() or 4)
+        # Decoder threads in each of those workers. 0 = auto: the CPUs split
+        # between the workers, so each does not size its thread pool for the
+        # whole machine; every frame thread holds its own reference frames.
+        self._decode_threads_per_worker = int(configValues.get("decode_threads_per_worker", 0) or 0)
 
         # How many frames to resize/normalize per batched GPU call.  Larger =
         # fewer GIL-held dispatches (better decode/inference overlap) at the cost
         # of more transient VRAM for the in-flight batch.
         _pbs = configValues.get("preprocess_batch_size", 32)
         self._preprocess_batch_size = max(1, int(_pbs) if _pbs else 32)
+        # CPU tensor transforms initialize an OpenMP team on the calling
+        # thread. On Windows these native teams can outlive a short-lived
+        # Python thread. Reuse a producer thread across videos so teams and
+        # their resources remain bounded instead of accumulating per video.
+        self._producer_executor = None
 
         requested_backend = str(configValues.get("preprocess_backend", "av_auto")).lower()
 
@@ -192,6 +208,19 @@ class VideoPreprocessorModel(Model):
                 "Video preprocessor using PyAV auto backend (seek when interval >= 1s, threaded otherwise)"
             )
 
+    async def unload(self):
+        executor, self._producer_executor = self._producer_executor, None
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    @property
+    def preprocess_frame_budget(self):
+        """Upper bound including staged frames and shared batch storage."""
+        pending = MAX_AUTO_PENDING_FRAMES if self._max_pending_auto else self._max_pending_frames
+        batch = self._preprocess_batch_size
+        queued = pending + RESULT_QUEUE_DEPTH + CONSUMER_BATCH_SIZE
+        return (((queued + batch - 1) // batch + 1) * batch) * max(1, self.instance_count)
+
     def _should_skip_decode(self, itemFuture, input_names) -> bool:
         """True when no model downstream of this preprocessor will run."""
         downstream = self.downstream_model_names
@@ -234,9 +263,10 @@ class VideoPreprocessorModel(Model):
     async def worker_function(self, data):
         for item in data:
             dense_streams = []
+            itemFuture = item.item_future
             try:
+                cuda_health.raise_if_failed()
                 preprocess_time = 0.0
-                itemFuture = item.item_future
                 input_data = itemFuture[item.input_names[0]]
                 use_timestamps = itemFuture[item.input_names[1]]
                 frame_interval = itemFuture[item.input_names[2]] or self.frame_interval
@@ -305,6 +335,7 @@ class VideoPreprocessorModel(Model):
                     preprocess_callable = functools.partial(
                         preprocess_video_mp_pyav,
                         decode_workers=self._decode_workers,
+                        decode_threads_per_worker=self._decode_threads_per_worker,
                         dense_sinks=dense_sinks,
                         dense_crop=dense_crop,
                         emit_interval=frames_wanted,
@@ -331,6 +362,7 @@ class VideoPreprocessorModel(Model):
                         preprocess_callable = functools.partial(
                             preprocess_video_mp_pyav,
                             decode_workers=self._decode_workers,
+                            decode_threads_per_worker=self._decode_threads_per_worker,
                             skip_nonref=self._skip_nonref,
                         )
                         backend_used = "mp_pyav"
@@ -428,10 +460,11 @@ class VideoPreprocessorModel(Model):
                 # All three stages overlap.  Total ≈ max(decode, GPU).
 
                 _FRAME_DONE = object()
-                _QUEUE_DEPTH = 64
+                _QUEUE_DEPTH = RESULT_QUEUE_DEPTH
                 _result_q = queue.Queue(maxsize=_QUEUE_DEPTH)
                 _producer_error = []
                 _cumulative_cpu = [0.0]   # mutable float for thread
+                _stop = threading.Event()  # set when the consumer stops reading
                 _requested_model_names = _requested_names
                 # A spec no requested model reads is not produced, but its key
                 # is still set: the models wired to it are triggered by it,
@@ -455,43 +488,67 @@ class VideoPreprocessorModel(Model):
                     _ss = spec_start
                     _batch = []  # list of (frame_index, raw_frame CHW)
 
+                    def _put(entry):
+                        while not _stop.is_set():
+                            try:
+                                _result_q.put(entry, timeout=0.2)
+                                return True
+                            except queue.Full:
+                                pass
+                        return False
+
                     def _flush():
                         if not _batch:
-                            return
+                            return True
                         t0 = time.perf_counter()
                         raws = torch.stack([rf for _, rf in _batch], dim=0)  # [N,C,H,W]
                         spec_batches = [apply_spec_batch(raws, sp) for sp in _specs]
                         del raws
-                        for bi, (fidx, _) in enumerate(_batch):
+                        indices = [fidx for fidx, _ in _batch]
+                        _batch.clear()
+                        _cumulative_cpu[0] += time.perf_counter() - t0
+                        for bi, fidx in enumerate(indices):
                             st = {
                                 _spec_names[si]: spec_batches[si][bi]
                                 for si in range(len(_specs))
                             }
-                            _result_q.put((fidx, st))
-                        _cumulative_cpu[0] += time.perf_counter() - t0
-                        _batch.clear()
+                            if not _put((fidx, st)):
+                                return False
+                        return True
 
                     try:
-                        while True:
+                        while not _stop.is_set():
                             try:
                                 frame_data = next(frame_iterator)
                             except StopIteration:
                                 break
                             _batch.append((frame_data[0], frame_data[1]))
                             del frame_data
-                            if len(_batch) >= self._preprocess_batch_size:
-                                _flush()
-                        _flush()
+                            if len(_batch) >= self._preprocess_batch_size and not _flush():
+                                break
+                        if not _stop.is_set():
+                            _flush()
                     except Exception as exc:
+                        cuda_health.record(exc)
                         _producer_error.append(exc)
                     finally:
-                        _result_q.put(_FRAME_DONE)
+                        _batch.clear()
+                        # The decode is closed by the thread running it: closing
+                        # a generator from another thread while it runs fails.
+                        close = getattr(frame_source, "close", None)
+                        if callable(close):
+                            try:
+                                close()
+                            except Exception as exc:
+                                self.logger.warning("Closing the decode of '%s' failed: %s", input_data, exc)
+                        _put(_FRAME_DONE)
 
-                producer = threading.Thread(
-                    target=_frame_producer, daemon=True,
-                    name="video-preprocess-producer",
-                )
-                producer.start()
+                if self._producer_executor is None:
+                    self._producer_executor = ThreadPoolExecutor(
+                        max_workers=max(1, self.instance_count),
+                        thread_name_prefix="video-preprocess-producer")
+                producer_executor = self._producer_executor
+                producer = producer_executor.submit(_frame_producer)
 
                 try:
                     _threshold = itemFuture[item.input_names[3]]
@@ -505,7 +562,7 @@ class VideoPreprocessorModel(Model):
                         if first is _FRAME_DONE:
                             return [first]
                         items = [first]
-                        while len(items) < 64:
+                        while len(items) < CONSUMER_BATCH_SIZE:
                             try:
                                 nxt = _result_q.get_nowait()
                                 items.append(nxt)
@@ -567,18 +624,33 @@ class VideoPreprocessorModel(Model):
                             break
 
                     preprocess_time = _cumulative_cpu[0]
-                    producer.join(timeout=10.0)
+                    wait([producer], timeout=10.0)
                 finally:
-                    # Drain queue so the producer isn't stuck on put().
-                    while producer.is_alive():
+                    # Stop the producer (it closes the decode) and drop
+                    # whatever it queued.
+                    _stop.set()
+                    _deadline = time.monotonic() + 60.0
+                    while not producer.done() and time.monotonic() < _deadline:
+                        try:
+                            _result_q.get(timeout=0.2)
+                        except queue.Empty:
+                            pass
+                    if not producer.done():
+                        self.logger.warning(
+                            "The decode of '%s' did not stop within 60 s; retiring its producer executor",
+                            input_data)
+                        # A stuck decode must not occupy the next video's
+                        # producer slot. Leave its thread to finish safely,
+                        # but create a fresh executor for later requests.
+                        # Another worker may already have replaced this pool.
+                        if self._producer_executor is producer_executor:
+                            self._producer_executor = None
+                        producer_executor.shutdown(wait=False)
+                    while True:
                         try:
                             _result_q.get_nowait()
                         except queue.Empty:
                             break
-                    producer.join(timeout=5.0)
-                    close = getattr(frame_source, "close", None)
-                    if callable(close):
-                        close()
 
                 if frame_count > 0:
                     avg_time = preprocess_time / frame_count
