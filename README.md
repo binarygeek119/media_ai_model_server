@@ -4,7 +4,7 @@ This project is dedicated to creating and running AI models that can automatical
 
 ## Key Benefits of AI Tagging
 
-The AI models available here are state-of-the-art, boasting far higher accuracy than any other similar AI models found on the internet. These models provide data that can be useful in many ways:
+The AI models available here are state-of-the-art, boasting far higher accuracy than any other similar AI models found on the internet. You don't have to just take my word for it either, feel free to check out the numbers and [see how large of a difference it is](https://github.com/skier233/media_ai_model_server/wiki/AI-model-accuracy-comparison-with-other-available-models) These models provide data that can be useful in many ways:
 
 * **Precision Time-Based Tagging**
   - The AI delivers highly accurate time-based tags, making it easy for you to search and find specific content within a video without having to watch the entire video to locate the interesting parts.
@@ -36,6 +36,10 @@ Before becoming a patron or installing the free model, please be aware of the fo
 - **NVIDIA Docker Image**: The default NVIDIA Docker image in this fork is geared specifically to a **Tesla M40 24GB** (compute capability `sm_52`, CUDA 12.6 PyTorch wheels). It may not work on other NVIDIA GPUs, especially newer cards that expect CUDA 13.x wheels. The Intel and AMD Docker/install paths are unchanged from upstream.
 
 - **Performance on CPU**: While CPU is supported, it will be much slower compared to running on a GPU.
+
+- **Fatal CUDA errors**: An illegal memory access, device assertion, or fatal launch error makes the process unhealthy. Pending work fails and HTTP requests, including health checks, return 503 with `restart_required: true` until the server process is restarted. An ordinary out-of-memory error does not trigger this state. For diagnosis, set `CUDA_LAUNCH_BLOCKING=1` and `TORCH_SHOW_CPP_STACKTRACES=1` before starting Python; synchronous GPU launches can reduce throughput.
+
+- **GPU preprocessing memory**: VRAM budgeting uses the pipeline's actual GPU tensor sizes and precision, including queued video frames, staging buffers, and worker concurrency. Auto video backlogs reserve their maximum bound before the source dimensions are known. GPU preprocessing specs need a fixed size or `max_long_edge`, and GPU image preprocessing needs a positive `max_pending_images`. Image slots stay occupied until downstream processing finishes. CPU-only preprocessing does not reserve GPU backlog storage.
 
 - **Complexity and Support**: Running machine learning models is complex and requires precise conditions to work smoothly. Although I have worked to make the installation process and AI model predictions as user-friendly as possible, due to the variability in hardware and software environments, there might be issues. I will do my best to help resolve any issues, but I cannot guarantee that the models will run on every computer.
 
